@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/kaspanet/kaspad/app/appmessage"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/consensusserialization"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/constants"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/transactionid"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/txscript"
 	"net/http"
 
 	"github.com/kaspanet/go-secp256k1"
-	"github.com/kaspanet/kaspad/domain/txscript"
 	"github.com/kaspanet/kaspad/util"
-	"github.com/kaspanet/kaspad/util/daghash"
 	"github.com/kaspanet/kasparov/apimodels"
 	"github.com/pkg/errors"
 )
@@ -115,7 +117,7 @@ func generateTx(privateKey *secp256k1.PrivateKey, selectedUTXOs []*apimodels.Tra
 
 	txIns := make([]*appmessage.TxIn, len(selectedUTXOs))
 	for i, utxo := range selectedUTXOs {
-		txID, err := daghash.NewTxIDFromStr(utxo.TransactionID)
+		txID, err := transactionid.FromString(utxo.TransactionID)
 		if err != nil {
 			return nil, err
 		}
@@ -137,10 +139,10 @@ func generateTx(privateKey *secp256k1.PrivateKey, selectedUTXOs []*apimodels.Tra
 
 	txOuts := []*appmessage.TxOut{mainTxOut, changeTxOut}
 
-	tx := appmessage.NewNativeMsgTx(appmessage.TxVersion, txIns, txOuts)
+	tx := appmessage.NewNativeMsgTx(constants.TransactionVersion, txIns, txOuts)
 
 	for i, txIn := range tx.TxIn {
-		signatureScript, err := txscript.SignatureScript(tx, i, fromScript, txscript.SigHashAll, privateKey, true)
+		signatureScript, err := txscript.SignatureScript(appmessage.MsgTxToDomainTransaction(tx), i, fromScript, txscript.SigHashAll, privateKey, true)
 		if err != nil {
 			return nil, err
 		}
@@ -151,8 +153,11 @@ func generateTx(privateKey *secp256k1.PrivateKey, selectedUTXOs []*apimodels.Tra
 }
 
 func sendTx(conf *sendConfig, msgTx *appmessage.MsgTx) error {
-	txBuffer := bytes.NewBuffer(make([]byte, 0, msgTx.SerializeSize()))
-	if err := msgTx.KaspaEncode(txBuffer, 0); err != nil {
+	txBuffer := &bytes.Buffer{}
+	txData := &bytes.Buffer{}
+	domainTransaction := appmessage.MsgTxToDomainTransaction(msgTx)
+	err := consensusserialization.SerializeTransaction(txData, domainTransaction, 0)
+	if err != nil {
 		return err
 	}
 

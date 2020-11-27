@@ -2,9 +2,9 @@ package apimodels
 
 import (
 	"encoding/hex"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/subnetworks"
 	"github.com/kaspanet/kaspad/domain/dagconfig"
 	"github.com/kaspanet/kaspad/util/pointers"
-	"github.com/kaspanet/kaspad/util/subnetworkid"
 	"github.com/pkg/errors"
 	"sort"
 
@@ -111,8 +111,7 @@ func ConvertBlockModelToBlockResponse(block *dbmodels.Block, selectedTipBlueScor
 func ConvertTransactionOutputModelToTransactionOutputResponse(transactionOutput *dbmodels.TransactionOutput,
 	selectedTipBlueScore uint64, activeNetParams *dagconfig.Params, isSpent bool) (*TransactionOutputResponse, error) {
 
-	subnetworkID := &subnetworkid.SubnetworkID{}
-	err := subnetworkid.Decode(subnetworkID, transactionOutput.Transaction.Subnetwork.SubnetworkID)
+	subnetworkID, err := subnetworks.FromString(transactionOutput.Transaction.Subnetwork.SubnetworkID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "couldn't decode subnetwork id %s", transactionOutput.Transaction.Subnetwork.SubnetworkID)
 	}
@@ -122,7 +121,7 @@ func ConvertTransactionOutputModelToTransactionOutputResponse(transactionOutput 
 		acceptingBlockHash = &transactionOutput.Transaction.AcceptingBlock.BlockHash
 		acceptingBlockBlueScore = &transactionOutput.Transaction.AcceptingBlock.BlueScore
 	}
-	isCoinbase := subnetworkID.IsEqual(subnetworkid.SubnetworkIDCoinbase)
+	isCoinbase := subnetworks.IsEqual(subnetworkID, &subnetworks.SubnetworkIDCoinbase)
 	utxoConfirmations := confirmations(acceptingBlockBlueScore, selectedTipBlueScore)
 
 	isSpendable := false

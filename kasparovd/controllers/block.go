@@ -11,7 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/kaspanet/kaspad/util/daghash"
+	"github.com/kaspanet/kaspad/domain/consensus/model/externalapi"
 	"github.com/kaspanet/kasparov/httpserverutils"
 )
 
@@ -19,9 +19,9 @@ const maxGetBlocksLimit = 100
 
 // GetBlockByHashHandler returns a block by a given hash.
 func GetBlockByHashHandler(blockHash string) (interface{}, error) {
-	if bytes, err := hex.DecodeString(blockHash); err != nil || len(bytes) != daghash.HashSize {
+	if bytes, err := hex.DecodeString(blockHash); err != nil || len(bytes) != externalapi.DomainHashSize {
 		return nil, httpserverutils.NewHandlerError(http.StatusUnprocessableEntity,
-			errors.Errorf("the given block hash is not a hex-encoded %d-byte hash", daghash.HashSize))
+			errors.Errorf("the given block hash is not a hex-encoded %d-byte hash", externalapi.DomainHashSize))
 	}
 
 	block, err := dbaccess.BlockByHash(database.NoTx(), blockHash, dbmodels.BlockRecommendedPreloadedFields...)

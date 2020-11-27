@@ -1,15 +1,17 @@
 package sync
 
 import (
+	"bytes"
 	"encoding/hex"
 	"github.com/kaspanet/kaspad/app/appmessage"
+	"github.com/kaspanet/kaspad/domain/consensus/model/externalapi"
+	"github.com/kaspanet/kaspad/domain/consensus/processes/transactionvalidator"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/consensusserialization"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/subnetworks"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/transactionid"
 	"github.com/kaspanet/kasparov/database"
 	"github.com/kaspanet/kasparov/serializer"
 
-	"github.com/kaspanet/kaspad/domain/blockdag"
-	"github.com/kaspanet/kaspad/util"
-	"github.com/kaspanet/kaspad/util/daghash"
-	"github.com/kaspanet/kaspad/util/subnetworkid"
 	"github.com/kaspanet/kasparov/dbaccess"
 	"github.com/kaspanet/kasparov/dbmodels"
 
@@ -39,15 +41,22 @@ func insertRawTransactions(dbTx *database.TxContext, transactionHashesToTxsWithM
 		if !transaction.isNew {
 			continue
 		}
-		verboseTx := transaction.verboseTx
-		txData, err := hex.DecodeString(verboseTx.Hex)
+
+		txData := &bytes.Buffer{}
+		msgTx, err := convertTxRawResultToMsgTx(transaction.verboseTx)
 		if err != nil {
 			return err
 		}
+		domainTransaction := appmessage.MsgTxToDomainTransaction(msgTx)
+		err = consensusserialization.SerializeTransaction(txData, domainTransaction, 0)
+		if err != nil {
+			return err
+		}
+
 		rawTransactionsToAdd = append(rawTransactionsToAdd, dbmodels.RawTransaction{
 			TransactionID:   transaction.id,
 			Transaction:     dbmodels.Transaction{},
-			TransactionData: txData,
+			TransactionData: txData.Bytes(),
 		})
 	}
 	return dbaccess.BulkInsert(dbTx, rawTransactionsToAdd)
@@ -160,6 +169,7 @@ func calcTxMass(dbTx *database.TxContext, transaction *appmessage.TransactionVer
 		return 0, err
 	}
 
+	domainTransaction := appmessage.MsgTxToDomainTransaction(msgTx)
 	prevScriptPubKeysMap := make(map[string]map[uint32][]byte)
 	for _, prevDBTransactionsOutput := range prevDBTransactionsOutputs {
 		txID := prevDBTransactionsOutput.Transaction.TransactionID
@@ -168,17 +178,20 @@ func calcTxMass(dbTx *database.TxContext, transaction *appmessage.TransactionVer
 		}
 		prevScriptPubKeysMap[txID][prevDBTransactionsOutput.Index] = prevDBTransactionsOutput.ScriptPubKey
 	}
-	orderedPrevScriptPubKeys := make([][]byte, len(transaction.TransactionVerboseInputs))
+
 	for i, txIn := range transaction.TransactionVerboseInputs {
-		orderedPrevScriptPubKeys[i] = prevScriptPubKeysMap[txIn.TxID][uint32(i)]
+		domainTransaction.Inputs[i].UTXOEntry = &externalapi.UTXOEntry{
+			ScriptPublicKey: prevScriptPubKeysMap[txIn.TxID][uint32(i)],
+		}
 	}
-	return blockdag.CalcTxMass(util.NewTx(msgTx), orderedPrevScriptPubKeys), nil
+
+	return transactionvalidator.TransactionMass(domainTransaction)
 }
 
 func convertTxRawResultToMsgTx(tx *appmessage.TransactionVerboseData) (*appmessage.MsgTx, error) {
 	txIns := make([]*appmessage.TxIn, len(tx.TransactionVerboseInputs))
 	for i, txIn := range tx.TransactionVerboseInputs {
-		prevTxID, err := daghash.NewTxIDFromStr(txIn.TxID)
+		prevTxID, err := transactionid.FromString(txIn.TxID)
 		if err != nil {
 			return nil, err
 		}
@@ -206,11 +219,11 @@ func convertTxRawResultToMsgTx(tx *appmessage.TransactionVerboseData) (*appmessa
 			ScriptPubKey: scriptPubKey,
 		}
 	}
-	subnetworkID, err := subnetworkid.NewFromStr(tx.SubnetworkID)
+	subnetworkID, err := subnetworks.FromString(tx.SubnetworkID)
 	if err != nil {
 		return nil, err
 	}
-	if subnetworkID.IsEqual(subnetworkid.SubnetworkIDNative) {
+	if subnetworks.IsEqual(subnetworkID, &subnetworks.SubnetworkIDNative) {
 		return appmessage.NewNativeMsgTx(tx.Version, txIns, txOuts), nil
 	}
 	payload, err := hex.DecodeString(tx.Payload)

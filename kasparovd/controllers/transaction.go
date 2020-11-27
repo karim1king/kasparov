@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/kaspanet/kaspad/domain/consensus/model/externalapi"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/consensusserialization"
 	"net/http"
 
 	"github.com/kaspanet/kaspad/app/appmessage"
@@ -18,16 +20,15 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kaspanet/kaspad/infrastructure/network/rpcclient"
-	"github.com/kaspanet/kaspad/util/daghash"
 )
 
 const maxGetTransactionsLimit = 1000
 
 // GetTransactionByIDHandler returns a transaction by a given transaction ID.
 func GetTransactionByIDHandler(txID string) (interface{}, error) {
-	if bytes, err := hex.DecodeString(txID); err != nil || len(bytes) != daghash.TxIDSize {
+	if bytes, err := hex.DecodeString(txID); err != nil || len(bytes) != externalapi.DomainHashSize {
 		return nil, httpserverutils.NewHandlerError(http.StatusUnprocessableEntity,
-			errors.Errorf("The given txid is not a hex-encoded %d-byte hash", daghash.TxIDSize))
+			errors.Errorf("The given txid is not a hex-encoded %d-byte hash", externalapi.DomainHashSize))
 	}
 
 	tx, err := dbaccess.TransactionByID(database.NoTx(), txID, dbmodels.TransactionRecommendedPreloadedFields...)
@@ -49,9 +50,9 @@ func GetTransactionByIDHandler(txID string) (interface{}, error) {
 
 // GetTransactionByHashHandler returns a transaction by a given transaction hash.
 func GetTransactionByHashHandler(txHash string) (interface{}, error) {
-	if bytes, err := hex.DecodeString(txHash); err != nil || len(bytes) != daghash.HashSize {
+	if bytes, err := hex.DecodeString(txHash); err != nil || len(bytes) != externalapi.DomainHashSize {
 		return nil, httpserverutils.NewHandlerError(http.StatusUnprocessableEntity,
-			errors.Errorf("The given txhash is not a hex-encoded %d-byte hash", daghash.HashSize))
+			errors.Errorf("The given txhash is not a hex-encoded %d-byte hash", externalapi.DomainHashSize))
 	}
 
 	tx, err := dbaccess.TransactionByHash(database.NoTx(), txHash, dbmodels.TransactionRecommendedPreloadedFields...)
@@ -146,9 +147,9 @@ func GetTransactionsByBlockHashHandler(blockHash string) (interface{}, error) {
 // GetTransactionDoubleSpends returns array of transactions that spend
 // at least one of the same inputs as the given transaction
 func GetTransactionDoubleSpends(txID string) (interface{}, error) {
-	if bytes, err := hex.DecodeString(txID); err != nil || len(bytes) != daghash.TxIDSize {
+	if bytes, err := hex.DecodeString(txID); err != nil || len(bytes) != externalapi.DomainHashSize {
 		return nil, httpserverutils.NewHandlerError(http.StatusUnprocessableEntity,
-			errors.Errorf("The given txid is not a hex-encoded %d-byte hash", daghash.TxIDSize))
+			errors.Errorf("The given txid is not a hex-encoded %d-byte hash", externalapi.DomainHashSize))
 	}
 
 	txs, err := dbaccess.TransactionDoubleSpends(database.NoTx(), txID)
