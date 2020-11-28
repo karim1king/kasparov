@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/kaspanet/kaspad/app/appmessage"
 	"github.com/kaspanet/kaspad/domain/consensus/model/externalapi"
 	"github.com/kaspanet/kaspad/domain/consensus/utils/consensusserialization"
-	"net/http"
-
-	"github.com/kaspanet/kaspad/app/appmessage"
 	"github.com/kaspanet/kasparov/database"
+	"net/http"
 
 	"github.com/kaspanet/kasparov/apimodels"
 	"github.com/kaspanet/kasparov/dbaccess"
@@ -195,14 +194,14 @@ func PostTransaction(requestBody []byte) error {
 	}
 
 	txReader := bytes.NewReader(txBytes)
-	tx := &appmessage.MsgTx{}
-	err = tx.KaspaDecode(txReader, 0)
+	domainTransaction, err := consensusserialization.DeserializeTransaction(txReader)
 	if err != nil {
 		return httpserverutils.NewHandlerErrorWithCustomClientMessage(http.StatusUnprocessableEntity,
 			errors.Wrap(err, "error decoding raw transaction"),
 			"error decoding raw transaction")
 	}
 
+	tx := appmessage.DomainTransactionToMsgTx(domainTransaction)
 	_, err = client.SubmitTransaction(tx)
 	if err != nil {
 		if errors.Is(err, rpcclient.ErrRPC) {

@@ -153,7 +153,6 @@ func generateTx(privateKey *secp256k1.PrivateKey, selectedUTXOs []*apimodels.Tra
 }
 
 func sendTx(conf *sendConfig, msgTx *appmessage.MsgTx) error {
-	txBuffer := &bytes.Buffer{}
 	txData := &bytes.Buffer{}
 	domainTransaction := appmessage.MsgTxToDomainTransaction(msgTx)
 	err := consensusserialization.SerializeTransaction(txData, domainTransaction, 0)
@@ -161,7 +160,7 @@ func sendTx(conf *sendConfig, msgTx *appmessage.MsgTx) error {
 		return err
 	}
 
-	txHex := hex.EncodeToString(txBuffer.Bytes())
+	txHex := hex.EncodeToString(txData.Bytes())
 	rawTx := &apimodels.RawTransaction{
 		RawTransaction: txHex,
 	}
