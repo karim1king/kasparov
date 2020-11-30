@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"github.com/kaspanet/kaspad/app/appmessage"
 	"github.com/kaspanet/kasparov/database"
 	"github.com/kaspanet/kasparov/dbaccess"
 	"github.com/kaspanet/kasparov/dbmodels"
@@ -9,12 +10,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-func insertSubnetworks(client *kaspadrpc.Client, dbTx *database.TxContext, blocks []*rawAndVerboseBlock) (
+func insertSubnetworks(client *kaspadrpc.Client, dbTx *database.TxContext, blocks []*appmessage.BlockVerboseData) (
 	subnetworkIDsToIDs map[string]uint64, err error) {
 
 	subnetworkSet := make(map[string]struct{})
 	for _, block := range blocks {
-		for _, transaction := range block.Verbose.TransactionVerboseData {
+		for _, transaction := range block.TransactionVerboseData {
 			subnetworkSet[transaction.SubnetworkID] = struct{}{}
 		}
 	}

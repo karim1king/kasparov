@@ -2,14 +2,14 @@ package sync
 
 import (
 	"github.com/kaspanet/kaspad/app/appmessage"
+	"github.com/kaspanet/kaspad/domain/consensus/model/externalapi"
+	"github.com/kaspanet/kaspad/domain/consensus/utils/hashes"
 	"github.com/kaspanet/kasparov/database"
 
 	"github.com/kaspanet/kasparov/dbaccess"
 	"github.com/kaspanet/kasparov/dbmodels"
 	"github.com/kaspanet/kasparov/kaspadrpc"
 	"github.com/kaspanet/kasparov/kasparovsyncd/mqtt"
-
-	"github.com/kaspanet/kaspad/util/daghash"
 	"github.com/pkg/errors"
 )
 
@@ -106,7 +106,7 @@ func syncBlocks(client *kaspadrpc.Client) error {
 		log.Debugf("Got %d blocks", len(blocksResult.BlockHashes))
 
 		startHash = blocksResult.BlockHashes[len(blocksResult.BlockHashes)-1]
-		err = addBlocks(client, blocksResult.BlockHexes, blocksResult.BlockVerboseData)
+		err = addBlocks(client, blocksResult.BlockVerboseData)
 		if err != nil {
 			return err
 		}
@@ -148,17 +148,15 @@ func syncSelectedParentChain(client *kaspadrpc.Client) error {
 
 // fetchBlock downloads the serialized block and raw block data of
 // the block with hash blockHash.
-func fetchBlock(client *kaspadrpc.Client, blockHash *daghash.Hash) (
-	*rawAndVerboseBlock, error) {
+func fetchBlock(client *kaspadrpc.Client, blockHash *externalapi.DomainHash) (
+	*appmessage.BlockVerboseData, error) {
 	log.Debugf("Getting block %s from the RPC server", blockHash)
-	blockHexResponse, err := client.GetBlock(blockHash.String(), "", true, true, true)
+	blockResponse, err := client.GetBlock(blockHash.String(), "", true)
 	if err != nil {
 		return nil, err
 	}
-	return &rawAndVerboseBlock{
-		Raw:     blockHexResponse.BlockHex,
-		Verbose: blockHexResponse.BlockVerboseData,
-	}, nil
+
+	return blockResponse.BlockVerboseData, nil
 }
 
 // updateSelectedParentChain updates the database to reflect the current selected
@@ -245,7 +243,7 @@ func fetchAndAddMissingAddedChainBlocks(client *kaspadrpc.Client, dbTx *database
 		}
 
 		log.Debugf("Block %s not found in the database - fetching from node", block.Hash)
-		blockHash, err := daghash.NewHashFromStr(block.Hash)
+		blockHash, err := hashes.FromString(block.Hash)
 		if err != nil {
 			return nil, err
 		}
@@ -436,7 +434,7 @@ func handleBlockAddedMsg(client *kaspadrpc.Client, blockAdded *appmessage.BlockA
 }
 
 func fetchAndAddBlock(client *kaspadrpc.Client, dbTx *database.TxContext,
-	blockHash *daghash.Hash) (addedBlockHashes []string, err error) {
+	blockHash *externalapi.DomainHash) (addedBlockHashes []string, err error) {
 
 	block, err := fetchBlock(client, blockHash)
 	if err != nil {
@@ -448,7 +446,7 @@ func fetchAndAddBlock(client *kaspadrpc.Client, dbTx *database.TxContext,
 		return nil, err
 	}
 
-	blocks := append([]*rawAndVerboseBlock{block}, missingAncestors...)
+	blocks := append([]*appmessage.BlockVerboseData{block}, missingAncestors...)
 	err = bulkInsertBlocksData(client, dbTx, blocks)
 	if err != nil {
 		return nil, err
@@ -456,31 +454,31 @@ func fetchAndAddBlock(client *kaspadrpc.Client, dbTx *database.TxContext,
 
 	addedBlockHashes = make([]string, len(blocks))
 	for i, block := range blocks {
-		addedBlockHashes[i] = block.hash()
+		addedBlockHashes[i] = block.Hash
 	}
 
 	return addedBlockHashes, nil
 }
 
-func fetchMissingAncestors(client *kaspadrpc.Client, dbTx *database.TxContext, block *rawAndVerboseBlock,
-	blockExistingInMemory map[string]*rawAndVerboseBlock) ([]*rawAndVerboseBlock, error) {
+func fetchMissingAncestors(client *kaspadrpc.Client, dbTx *database.TxContext, block *appmessage.BlockVerboseData,
+	blockExistingInMemory map[string]*appmessage.BlockVerboseData) ([]*appmessage.BlockVerboseData, error) {
 
-	pendingBlocks := []*rawAndVerboseBlock{block}
-	missingAncestors := make([]*rawAndVerboseBlock, 0)
+	pendingBlocks := []*appmessage.BlockVerboseData{block}
+	missingAncestors := make([]*appmessage.BlockVerboseData, 0)
 	missingAncestorsSet := make(map[string]struct{})
 	for len(pendingBlocks) > 0 {
-		var currentBlock *rawAndVerboseBlock
+		var currentBlock *appmessage.BlockVerboseData
 		currentBlock, pendingBlocks = pendingBlocks[0], pendingBlocks[1:]
-		missingParentHashes, err := missingBlockHashes(dbTx, currentBlock.Verbose.ParentHashes, blockExistingInMemory)
+		missingParentHashes, err := missingBlockHashes(dbTx, currentBlock.ParentHashes, blockExistingInMemory)
 		if err != nil {
 			return nil, err
 		}
-		blocksToPrependToPending := make([]*rawAndVerboseBlock, 0, len(missingParentHashes))
+		blocksToPrependToPending := make([]*appmessage.BlockVerboseData, 0, len(missingParentHashes))
 		for _, missingHash := range missingParentHashes {
 			if _, ok := missingAncestorsSet[missingHash]; ok {
 				continue
 			}
-			hash, err := daghash.NewHashFromStr(missingHash)
+			hash, err := hashes.FromString(missingHash)
 			if err != nil {
 				return nil, err
 			}
@@ -492,7 +490,7 @@ func fetchMissingAncestors(client *kaspadrpc.Client, dbTx *database.TxContext, b
 		}
 		if len(blocksToPrependToPending) == 0 {
 			if currentBlock != block {
-				missingAncestorsSet[currentBlock.hash()] = struct{}{}
+				missingAncestorsSet[currentBlock.Hash] = struct{}{}
 				missingAncestors = append(missingAncestors, currentBlock)
 			}
 			continue
@@ -508,7 +506,7 @@ func fetchMissingAncestors(client *kaspadrpc.Client, dbTx *database.TxContext, b
 // a slice that contains all the block hashes that do not exist
 // in the database or in the given blocksExistingInMemory map.
 func missingBlockHashes(dbTx *database.TxContext, blockHashes []string,
-	blocksExistingInMemory map[string]*rawAndVerboseBlock) ([]string, error) {
+	blocksExistingInMemory map[string]*appmessage.BlockVerboseData) ([]string, error) {
 
 	// filter out all the hashes that exist in blocksExistingInMemory
 	hashesNotInMemory := make([]string, 0)
@@ -628,16 +626,16 @@ func canHandleChainChangedMsg(chainChanged *appmessage.ChainChangedNotificationM
 
 // addBlocks inserts data in the given rawBlocks and verboseBlocks pairwise
 // into the database.
-func addBlocks(client *kaspadrpc.Client, rawBlocks []string, verboseBlocks []*appmessage.BlockVerboseData) error {
+func addBlocks(client *kaspadrpc.Client, verboseBlocks []*appmessage.BlockVerboseData) error {
 	dbTx, err := database.NewTx()
 	if err != nil {
 		return err
 	}
 	defer dbTx.RollbackUnlessCommitted()
 
-	blocks := make([]*rawAndVerboseBlock, 0)
-	blockHashesToRawAndVerboseBlock := make(map[string]*rawAndVerboseBlock)
-	for i, rawBlock := range rawBlocks {
+	blocks := make([]*appmessage.BlockVerboseData, 0)
+	blockHashesToRawAndVerboseBlock := make(map[string]*appmessage.BlockVerboseData)
+	for i, verboseBlock := range verboseBlocks {
 		blockExists, err := dbaccess.DoesBlockExist(dbTx, verboseBlocks[i].Hash)
 		if err != nil {
 			return err
@@ -646,24 +644,17 @@ func addBlocks(client *kaspadrpc.Client, rawBlocks []string, verboseBlocks []*ap
 			continue
 		}
 
-		block := &rawAndVerboseBlock{
-			Raw:     rawBlock,
-			Verbose: verboseBlocks[i],
-		}
-		missingAncestors, err := fetchMissingAncestors(client, dbTx, &rawAndVerboseBlock{
-			Raw:     rawBlock,
-			Verbose: verboseBlocks[i],
-		}, blockHashesToRawAndVerboseBlock)
+		missingAncestors, err := fetchMissingAncestors(client, dbTx, verboseBlock, blockHashesToRawAndVerboseBlock)
 		if err != nil {
 			return err
 		}
 
-		blocks = append(blocks, block)
-		blockHashesToRawAndVerboseBlock[block.hash()] = block
+		blocks = append(blocks, verboseBlock)
+		blockHashesToRawAndVerboseBlock[verboseBlock.Hash] = verboseBlock
 
 		blocks = append(blocks, missingAncestors...)
 		for _, block := range missingAncestors {
-			blockHashesToRawAndVerboseBlock[block.hash()] = block
+			blockHashesToRawAndVerboseBlock[block.Hash] = block
 		}
 	}
 	err = bulkInsertBlocksData(client, dbTx, blocks)
@@ -675,7 +666,7 @@ func addBlocks(client *kaspadrpc.Client, rawBlocks []string, verboseBlocks []*ap
 
 // bulkInsertBlocksData inserts the given blocks and their data (transactions
 // and new subnetworks data) to the database in chunks.
-func bulkInsertBlocksData(client *kaspadrpc.Client, dbTx *database.TxContext, blocks []*rawAndVerboseBlock) error {
+func bulkInsertBlocksData(client *kaspadrpc.Client, dbTx *database.TxContext, blocks []*appmessage.BlockVerboseData) error {
 	subnetworkIDToID, err := insertSubnetworks(client, dbTx, blocks)
 	if err != nil {
 		return err
@@ -706,22 +697,12 @@ func bulkInsertBlocksData(client *kaspadrpc.Client, dbTx *database.TxContext, bl
 		return err
 	}
 
-	blockHashesToIDs, err := getBlocksWithTheirAcceptedBlocksAndParentIDs(dbTx, blocks)
+	blockHashesToIDs, err := getBlocksWithTheirParentIDs(dbTx, blocks)
 	if err != nil {
 		return err
 	}
 
 	err = insertBlockParents(dbTx, blocks, blockHashesToIDs)
-	if err != nil {
-		return err
-	}
-
-	err = insertAcceptedBlocks(dbTx, blocks, blockHashesToIDs)
-	if err != nil {
-		return err
-	}
-
-	err = insertRawBlocks(dbTx, blocks, blockHashesToIDs)
 	if err != nil {
 		return err
 	}

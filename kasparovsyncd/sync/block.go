@@ -13,15 +13,15 @@ import (
 	"github.com/pkg/errors"
 )
 
-func insertBlocks(dbTx *database.TxContext, blocks []*rawAndVerboseBlock, transactionHashesToTxsWithMetadata map[string]*txWithMetadata) error {
+func insertBlocks(dbTx *database.TxContext, blocks []*appmessage.BlockVerboseData, transactionHashesToTxsWithMetadata map[string]*txWithMetadata) error {
 	blocksToAdd := make([]interface{}, len(blocks))
 	for i, block := range blocks {
 		blockMass := uint64(0)
-		for _, tx := range block.Verbose.TransactionVerboseData {
+		for _, tx := range block.TransactionVerboseData {
 			blockMass += transactionHashesToTxsWithMetadata[tx.Hash].mass
 		}
 		var err error
-		blocksToAdd[i], err = dbBlockFromVerboseBlock(block.Verbose, blockMass)
+		blocksToAdd[i], err = dbBlockFromVerboseBlock(block, blockMass)
 		if err != nil {
 			return err
 		}
@@ -29,15 +29,12 @@ func insertBlocks(dbTx *database.TxContext, blocks []*rawAndVerboseBlock, transa
 	return dbaccess.BulkInsert(dbTx, blocksToAdd)
 }
 
-func getBlocksWithTheirAcceptedBlocksAndParentIDs(dbTx *database.TxContext, blocks []*rawAndVerboseBlock) (map[string]uint64, error) {
+func getBlocksWithTheirParentIDs(dbTx *database.TxContext, blocks []*appmessage.BlockVerboseData) (map[string]uint64, error) {
 	blockSet := make(map[string]struct{})
 	for _, block := range blocks {
-		blockSet[block.hash()] = struct{}{}
-		for _, parentHash := range block.Verbose.ParentHashes {
+		blockSet[block.Hash] = struct{}{}
+		for _, parentHash := range block.ParentHashes {
 			blockSet[parentHash] = struct{}{}
-		}
-		for _, acceptedBlockHash := range block.Verbose.AcceptedBlockHashes {
-			blockSet[acceptedBlockHash] = struct{}{}
 		}
 	}
 

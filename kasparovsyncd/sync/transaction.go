@@ -62,15 +62,15 @@ func insertRawTransactions(dbTx *database.TxContext, transactionHashesToTxsWithM
 	return dbaccess.BulkInsert(dbTx, rawTransactionsToAdd)
 }
 
-func insertTransactions(dbTx *database.TxContext, blocks []*rawAndVerboseBlock, subnetworkIDsToIDs map[string]uint64) (
+func insertTransactions(dbTx *database.TxContext, blocks []*appmessage.BlockVerboseData, subnetworkIDsToIDs map[string]uint64) (
 	map[string]*txWithMetadata, error) {
 
 	transactionHashesToTxsWithMetadata := make(map[string]*txWithMetadata)
 	for _, block := range blocks {
 		// We do not directly iterate over block.Verbose.RawTx because it is a slice of values, and iterating
 		// over such will re-use the same address, making all pointers pointing into it point to the same address
-		for i := range block.Verbose.TransactionVerboseData {
-			transaction := block.Verbose.TransactionVerboseData[i]
+		for i := range block.TransactionVerboseData {
+			transaction := block.TransactionVerboseData[i]
 			transactionHashesToTxsWithMetadata[transaction.Hash] = &txWithMetadata{
 				verboseTx: transaction,
 			}
