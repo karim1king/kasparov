@@ -43,7 +43,7 @@ func insertSubnetworks(client *kaspadrpc.Client, dbTx *database.TxContext, block
 	subnetworksToAdd := make([]interface{}, len(newSubnetworkIDs))
 	for i, subnetworkID := range newSubnetworkIDs {
 		subnetwork, err := client.GetSubnetwork(subnetworkID)
-		if err != nil {
+		if err != nil && err.Error() != "not implemented" {
 			return nil, err
 		}
 		var gasLimit *uint64
